@@ -275,12 +275,12 @@
 
   <!-- ================= 자바스크립트 로직 ================= -->
   <script type="module">
-    // Firebase 모듈 가져오기 (CDN)
+    // Firebase 모듈 가져오기 (CDN 방식)
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-    // Firebase 설정
+    // 사용자 웹 앱의 Firebase 구성 (사용자가 제공한 값)
     const firebaseConfig = {
       apiKey: "AIzaSyBzaF2hp0nDDeaHpgTAHJzvpXE2hMqm2Mc",
       authDomain: "parkland-money.firebaseapp.com",
@@ -290,6 +290,7 @@
       appId: "1:242107353942:web:bcbdb39522b65c7df4a4f7"
     };
 
+    // Firebase 초기화
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -327,12 +328,18 @@
     const dateInput = document.getElementById('tx-date');
     dateInput.value = new Date().toISOString().split('T')[0];
 
-    // --- 인증 초기화 ---
-    signInAnonymously(auth).catch(err => {
-      // 캔버스 에러창이 뜨지 않도록 console.error 대신 console.warn 사용
-      console.warn("Firebase 인증 설정 오류(auth/configuration-not-found)로 인해 비인증 모드로 동작합니다.");
-      state.userAuth = { uid: 'fallback-unauthenticated-user' };
-    });
+    // --- 인증 초기화 (가장 중요) ---
+    // 주의: Firebase 콘솔에서 반드시 "익명(Anonymous) 로그인"을 활성화해야 합니다.
+    async function initAuth() {
+      try {
+        await signInAnonymously(auth);
+      } catch (err) {
+        console.warn("Firebase 인증 설정 오류:", err.message);
+        // 에러 방지용 Fallback - 콘솔에서 세팅 안 되어 있어도 UI는 멈추지 않게 함
+        state.userAuth = { uid: 'fallback-unauthenticated-user' };
+      }
+    }
+    initAuth();
 
     onAuthStateChanged(auth, (user) => { 
       if (user) {
