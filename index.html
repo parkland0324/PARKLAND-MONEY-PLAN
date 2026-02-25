@@ -1,831 +1,798 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  Wallet, PiggyBank, Receipt, TrendingUp, TrendingDown, 
-  Calendar, User, Settings, Plus, X, BarChart3, LogOut, Users, PieChart, Key
-} from 'lucide-react';
-import { initializeApp } from "firebase/app";
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, setDoc } from "firebase/firestore";
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>우리 가족 공유 가계부</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans pb-20 md:pb-8">
 
-const formatCurrency = (amount) => {
-  return amount.toLocaleString() + '원';
-};
-
-// --- Firebase Config & Init ---
-let firebaseConfig;
-const userFirebaseConfig = {
-  apiKey: "AIzaSyBzaF2hp0nDDeaHpgTAHJzvpXE2hMqm2Mc",
-  authDomain: "parkland-money.firebaseapp.com",
-  projectId: "parkland-money",
-  storageBucket: "parkland-money.firebasestorage.app",
-  messagingSenderId: "242107353942",
-  appId: "1:242107353942:web:bcbdb39522b65c7df4a4f7"
-};
-
-try {
-  // 캔버스 자체 환경 변수가 있으면 우선 사용 (미리보기 작동 보장용)
-  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-    firebaseConfig = JSON.parse(__firebase_config);
-  } else {
-    firebaseConfig = userFirebaseConfig;
-  }
-} catch (e) {
-  firebaseConfig = userFirebaseConfig;
-}
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [loginName, setLoginName] = useState('');
-  const [familyCode, setFamilyCode] = useState('');
-  const [inputFamilyCode, setInputFamilyCode] = useState('');
-  const [user, setUser] = useState(null); // Firebase auth user
-  
-  const [transactions, setTransactions] = useState([]);
-  const [settings, setSettings] = useState({});
-  
-  // yyyy-mm format
-  const [currentMonth, setCurrentMonth] = useState('2026-02');
-  
-  // UI States
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isYearlyViewOpen, setIsYearlyViewOpen] = useState(false);
-  const [selectedUserFilter, setSelectedUserFilter] = useState('All');
-
-  // Form States
-  const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
-    type: 'expense',
-    category: '',
-    amount: '',
-    memo: ''
-  });
-
-  // --- Firebase Effects ---
-  // 1. 초기 익명 로그인 (Firebase Security Rules 접근 권한 확보)
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Auth error:", error);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  // 2. 가족 코드가 입력되었을 때 데이터 실시간 연동
-  useEffect(() => {
-    if (!user || !familyCode) return;
-
-    // 내역(Transactions) 가져오기
-    const txRef = collection(db, 'artifacts', appId, 'public', 'data', 'transactions');
-    const unsubTx = onSnapshot(txRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // 우리가 설정한 가족 코드의 데이터만 필터링
-      const familyTx = data.filter(t => t.familyCode === familyCode);
-      setTransactions(familyTx.sort((a, b) => new Date(b.date) - new Date(a.date)));
-    }, (err) => console.error("Tx sync error:", err));
-
-    // 예산 설정(Settings) 가져오기
-    const setRef = collection(db, 'artifacts', appId, 'public', 'data', 'settings');
-    const unsubSet = onSnapshot(setRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const familySettingsData = data.filter(s => s.familyCode === familyCode);
+  <!-- ================= 로그인 화면 ================= -->
+  <div id="login-view" class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center">
+      <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+        <i data-lucide="wallet" class="w-8 h-8"></i>
+      </div>
+      <h1 class="text-2xl font-bold text-gray-800 mb-2">우리 가족 가계부</h1>
+      <p class="text-gray-500 mb-6">가족 공유 코드와 이름을 입력해주세요</p>
       
-      const newSettings = {};
-      familySettingsData.forEach(s => {
-        newSettings[s.month] = { 
-          expectedIncome: s.expectedIncome, 
-          spendingLimit: s.spendingLimit, 
-          docId: s.id 
-        };
-      });
-      setSettings(newSettings);
-    }, (err) => console.error("Settings sync error:", err));
+      <div class="bg-blue-50 text-blue-800 text-sm p-3 rounded-lg mb-6 text-left flex gap-2">
+        <i data-lucide="key" class="w-5 h-5 shrink-0 mt-0.5"></i>
+        <p><strong>가족 공유 코드</strong>를 똑같이 입력하면 다른 기기에서도 동일한 데이터를 함께 관리할 수 있습니다.</p>
+      </div>
 
-    return () => { unsubTx(); unsubSet(); };
-  }, [user, familyCode]);
+      <form id="login-form" class="space-y-4">
+        <div class="text-left">
+          <label class="block text-sm font-medium text-gray-700 mb-1">가족 공유 코드 (비밀번호 역할)</label>
+          <input type="text" id="input-family-code" placeholder="예: PARKFAMILY123" required
+            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none transition-shadow" />
+        </div>
+        <div class="text-left">
+          <label class="block text-sm font-medium text-gray-700 mb-1">사용자 이름</label>
+          <input type="text" id="input-login-name" placeholder="예: 남편, 아내" required
+            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none transition-shadow" />
+        </div>
+        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors mt-2">
+          공유 가계부 시작하기
+        </button>
+      </form>
+    </div>
+  </div>
 
-  // --- Derived Data ---
-  const currentMonthTransactions = useMemo(() => {
-    return transactions.filter(t => t.date.startsWith(currentMonth));
-  }, [transactions, currentMonth]);
-
-  const currentMonthStats = useMemo(() => {
-    let income = 0;
-    let expense = 0;
-    let saving = 0;
-
-    currentMonthTransactions.forEach(t => {
-      if (t.type === 'income') income += t.amount;
-      if (t.type === 'expense') expense += t.amount;
-      if (t.type === 'saving') saving += t.amount;
-    });
-
-    return { income, expense, saving };
-  }, [currentMonthTransactions]);
-
-  const uniqueUsers = useMemo(() => {
-    const users = new Set(transactions.map(t => t.user));
-    if (currentUser) users.add(currentUser);
-    return Array.from(users);
-  }, [transactions, currentUser]);
-
-  const currentMonthUserStats = useMemo(() => {
-    const stats = {};
-    currentMonthTransactions.forEach(t => {
-      if (!stats[t.user]) stats[t.user] = { income: 0, expense: 0, saving: 0 };
-      if (t.type === 'income') stats[t.user].income += t.amount;
-      if (t.type === 'expense') stats[t.user].expense += t.amount;
-      if (t.type === 'saving') stats[t.user].saving += t.amount;
-    });
-    return stats;
-  }, [currentMonthTransactions]);
-
-  const currentMonthCategoryStats = useMemo(() => {
-    const stats = {};
-    let totalExpense = 0;
+  <!-- ================= 메인 앱 화면 ================= -->
+  <div id="app-view" class="hidden min-h-screen bg-gray-50 pb-20 md:pb-8">
     
-    currentMonthTransactions.forEach(t => {
-      if (t.type === 'expense') {
-        if (!stats[t.category]) stats[t.category] = 0;
-        stats[t.category] += t.amount;
-        totalExpense += t.amount;
-      }
-    });
-
-    // 금액이 큰 순서대로 정렬하여 배열로 반환
-    return Object.entries(stats)
-      .map(([category, amount]) => ({ 
-        category, 
-        amount, 
-        percentage: totalExpense > 0 ? (amount / totalExpense) * 100 : 0 
-      }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [currentMonthTransactions]);
-
-  const displayedTransactions = useMemo(() => {
-    if (selectedUserFilter === 'All') return currentMonthTransactions;
-    return currentMonthTransactions.filter(t => t.user === selectedUserFilter);
-  }, [currentMonthTransactions, selectedUserFilter]);
-
-  const totalCumulativeSavings = useMemo(() => {
-    return transactions
-      .filter(t => t.type === 'saving')
-      .reduce((sum, t) => sum + t.amount, 0);
-  }, [transactions]);
-
-  const yearlyStats = useMemo(() => {
-    const stats = {};
-    transactions.forEach(t => {
-      const year = t.date.split('-')[0];
-      if (!stats[year]) stats[year] = { income: 0, expense: 0, saving: 0 };
-      if (t.type === 'income') stats[year].income += t.amount;
-      if (t.type === 'expense') stats[year].expense += t.amount;
-      if (t.type === 'saving') stats[year].saving += t.amount;
-    });
-    return stats;
-  }, [transactions]);
-
-  const currentSettings = settings[currentMonth] || { expectedIncome: 0, spendingLimit: 0 };
-  
-  // Calculate remaining
-  const remainingExpectedIncome = currentSettings.expectedIncome - currentMonthStats.expense - currentMonthStats.saving;
-  const remainingSpendingLimit = currentSettings.spendingLimit - currentMonthStats.expense;
-  const spendingPercentage = currentSettings.spendingLimit > 0 
-    ? Math.min((currentMonthStats.expense / currentSettings.spendingLimit) * 100, 100)
-    : 0;
-
-  // --- Handlers ---
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (loginName.trim() && inputFamilyCode.trim()) {
-      setCurrentUser(loginName.trim());
-      setFamilyCode(inputFamilyCode.trim());
-    }
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setLoginName('');
-    setFamilyCode('');
-    setInputFamilyCode('');
-  };
-
-  const handleAddTransaction = async (e) => {
-    e.preventDefault();
-    if (!formData.amount || !formData.category || !user) return;
-
-    const newTransaction = {
-      date: formData.date,
-      type: formData.type,
-      category: formData.category,
-      amount: parseInt(formData.amount, 10),
-      memo: formData.memo,
-      user: currentUser,
-      familyCode: familyCode, // 저장할 때 가족 코드를 함께 저장
-      createdAt: Date.now()
-    };
-
-    try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), newTransaction);
-      setFormData({ ...formData, category: '', amount: '', memo: '' });
-    } catch (error) {
-      console.error("Error adding transaction: ", error);
-    }
-  };
-
-  const handleDeleteTransaction = async (id) => {
-    if (!user) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', id));
-    } catch (error) {
-      console.error("Error deleting transaction: ", error);
-    }
-  };
-
-  const handleSaveSettings = async (expectedIncome, spendingLimit) => {
-    if (!user) return;
-    const currentSettingDoc = settings[currentMonth]?.docId;
-    
-    try {
-      if (currentSettingDoc) {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', currentSettingDoc), {
-          month: currentMonth, 
-          expectedIncome, 
-          spendingLimit, 
-          familyCode
-        });
-      } else {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'settings'), {
-          month: currentMonth, 
-          expectedIncome, 
-          spendingLimit, 
-          familyCode
-        });
-      }
-      setIsSettingsModalOpen(false);
-    } catch (error) {
-      console.error("Error saving settings: ", error);
-    }
-  };
-
-  const changeMonth = (offset) => {
-    const [year, month] = currentMonth.split('-').map(Number);
-    const date = new Date(year, month - 1 + offset, 1);
-    const newYear = date.getFullYear();
-    const newMonth = String(date.getMonth() + 1).padStart(2, '0');
-    setCurrentMonth(`${newYear}-${newMonth}`);
-  };
-
-  // --- Login Screen ---
-  if (!currentUser || !familyCode) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center">
-          <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Wallet size={32} />
+    <!-- 헤더 -->
+    <header class="bg-white shadow-sm sticky top-0 z-10">
+      <div class="max-w-5xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+          <i data-lucide="wallet" class="text-blue-600 w-6 h-6"></i>
+          <h1 class="text-xl font-bold">우리 가족 가계부</h1>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="flex items-center bg-gray-100 rounded-lg p-1">
+            <button id="btn-prev-month" class="p-2 hover:bg-white rounded-md transition-colors">&lt;</button>
+            <span id="display-month" class="px-4 font-semibold text-lg">2026년 02월</span>
+            <button id="btn-next-month" class="p-2 hover:bg-white rounded-md transition-colors">&gt;</button>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">우리 가족 가계부</h1>
-          <p className="text-gray-500 mb-6">가족 공유 코드와 이름을 입력해주세요</p>
-          
-          <div className="bg-blue-50 text-blue-800 text-sm p-3 rounded-lg mb-6 text-left flex gap-2">
-            <Key size={18} className="shrink-0 mt-0.5" />
-            <p><strong>가족 공유 코드</strong>를 똑같이 입력하면 다른 기기에서도 동일한 데이터를 함께 관리할 수 있습니다.</p>
+          <div class="hidden md:flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full font-medium">
+            <i data-lucide="user" class="w-4 h-4"></i>
+            <span id="display-user-name">사용자</span>
           </div>
+          <button id="btn-logout" class="text-gray-400 hover:text-red-500 transition-colors" title="로그아웃">
+            <i data-lucide="log-out" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+    </header>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="text-left">
-              <label className="block text-sm font-medium text-gray-700 mb-1">가족 공유 코드 (비밀번호 역할)</label>
-              <input
-                type="text"
-                value={inputFamilyCode}
-                onChange={(e) => setInputFamilyCode(e.target.value)}
-                placeholder="예: PARKFAMILY123"
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none transition-shadow"
-                required
-              />
+    <main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      <!-- 액션 버튼 -->
+      <div class="flex justify-end gap-2">
+        <button id="btn-open-yearly" class="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm">
+          <i data-lucide="bar-chart" class="w-4 h-4"></i> 연간 통계
+        </button>
+        <button id="btn-open-settings" class="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm">
+          <i data-lucide="settings" class="w-4 h-4"></i> 월 예산 설정
+        </button>
+      </div>
+
+      <!-- 요약 카드 3종 -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- 잔여액 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden">
+          <div class="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -z-10 opacity-50"></div>
+          <div>
+            <p class="text-gray-500 text-sm font-medium mb-1">예상 수입 대비 잔여액</p>
+            <h2 id="card-remaining-income" class="text-2xl font-bold text-gray-800">0원</h2>
+          </div>
+          <div class="mt-4 pt-4 border-t border-gray-50 text-sm space-y-1">
+            <div class="flex justify-between">
+              <span class="text-gray-500">예상 수입</span>
+              <span id="card-expected-income" class="font-medium text-blue-600">0원</span>
             </div>
-            <div className="text-left">
-              <label className="block text-sm font-medium text-gray-700 mb-1">사용자 이름</label>
-              <input
-                type="text"
-                value={loginName}
-                onChange={(e) => setLoginName(e.target.value)}
-                placeholder="예: 남편, 아내"
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none transition-shadow"
-                required
-              />
+            <div class="flex justify-between">
+              <span class="text-gray-500">총 지출+저축</span>
+              <span id="card-total-out" class="font-medium">0원</span>
             </div>
-            <button
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors mt-2"
-            >
-              공유 가계부 시작하기
-            </button>
+          </div>
+        </div>
+
+        <!-- 지출 한도 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-start mb-1">
+              <p class="text-gray-500 text-sm font-medium">사용 가능한 지출 한도</p>
+              <i data-lucide="receipt" class="text-orange-400 w-5 h-5"></i>
+            </div>
+            <h2 id="card-remaining-limit" class="text-2xl font-bold text-gray-800">0원</h2>
+          </div>
+          <div class="mt-4">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-gray-500" id="card-current-expense">현재 지출: 0원</span>
+              <span class="text-gray-500" id="card-limit-total">한도: 0원</span>
+            </div>
+            <div class="w-full bg-gray-100 rounded-full h-2.5">
+              <div id="card-limit-bar" class="h-2.5 rounded-full bg-green-500" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 누적 저축 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between bg-gradient-to-br from-green-50 to-white">
+          <div>
+            <div class="flex justify-between items-start mb-1">
+              <p class="text-gray-500 text-sm font-medium">총 누적 예·적금</p>
+              <i data-lucide="piggy-bank" class="text-green-500 w-5 h-5"></i>
+            </div>
+            <h2 id="card-total-savings" class="text-2xl font-bold text-green-700">0원</h2>
+          </div>
+          <div class="mt-4 pt-4 border-t border-green-100/50 text-sm space-y-1">
+            <div class="flex justify-between">
+              <span class="text-gray-500">이번 달 저축액</span>
+              <span id="card-month-savings" class="font-medium text-green-600">+0원</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 계정별 통계 -->
+      <div id="user-stats-container" class="hidden bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+        <h3 class="text-base font-bold mb-4 flex items-center gap-2 text-gray-800">
+          <i data-lucide="users" class="text-blue-600 w-4 h-4"></i> 계정별 통계
+        </h3>
+        <div id="user-stats-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <!-- 동적 생성 -->
+        </div>
+      </div>
+
+      <!-- 항목별 통계 -->
+      <div id="category-stats-container" class="hidden bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+        <h3 class="text-base font-bold mb-4 flex items-center gap-2 text-gray-800">
+          <i data-lucide="pie-chart" class="text-orange-500 w-4 h-4"></i> 지출 항목별 통계
+        </h3>
+        <div id="category-stats-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <!-- 동적 생성 -->
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- 내역 추가 폼 -->
+        <div class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
+          <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <i data-lucide="plus" class="text-blue-600 w-5 h-5"></i> 내역 추가
+          </h3>
+          <form id="tx-form" class="space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">날짜</label>
+              <input type="date" id="tx-date" required class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            </div>
+            
+            <div class="grid grid-cols-3 gap-2">
+              <button type="button" data-type="income" class="tx-type-btn py-2 text-sm font-medium rounded-lg border transition-colors bg-white border-gray-200 text-gray-500">수입</button>
+              <button type="button" data-type="expense" class="tx-type-btn py-2 text-sm font-medium rounded-lg border transition-colors bg-red-50 border-red-200 text-red-700">지출</button>
+              <button type="button" data-type="saving" class="tx-type-btn py-2 text-sm font-medium rounded-lg border transition-colors bg-white border-gray-200 text-gray-500">저축</button>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">분류</label>
+              <!-- 수입/지출용 텍스트 입력 -->
+              <input type="text" id="tx-category-input" placeholder="예: 식비, 교통비" required class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+              <!-- 저축용 선택박스 (기본 숨김) -->
+              <select id="tx-category-select" class="hidden w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <option value="적금">적금</option>
+                <option value="예금">예금</option>
+                <option value="투자/주식">투자/주식</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">금액</label>
+              <div class="relative">
+                <input type="number" id="tx-amount" placeholder="0" required class="w-full p-2 pl-3 pr-8 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-right font-medium" />
+                <span class="absolute right-3 top-2.5 text-gray-400 text-sm">원</span>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">메모 (선택)</label>
+              <input type="text" id="tx-memo" placeholder="상세 내용을 입력하세요" class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            </div>
+
+            <button type="submit" class="w-full py-3 bg-gray-800 text-white font-semibold rounded-lg hover:bg-gray-900 transition-colors">저장하기</button>
           </form>
         </div>
-      </div>
-    );
-  }
 
-  // --- Main App ---
-  return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans pb-20 md:pb-8">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Wallet className="text-blue-600" size={24} />
-            <h1 className="text-xl font-bold">우리 부부 가계부</h1>
+        <!-- 내역 리스트 -->
+        <div class="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
+            <h3 class="text-lg font-bold flex items-center gap-2">
+              <span>상세 내역</span>
+              <span id="tx-count" class="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">총 0건</span>
+            </h3>
+            
+            <div id="user-filter-container" class="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100 overflow-x-auto">
+              <!-- 필터 버튼 동적 생성 -->
+            </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className="flex items-center bg-gray-100 rounded-lg p-1">
-              <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-white rounded-md transition-colors">&lt;</button>
-              <span className="px-4 font-semibold text-lg">{currentMonth.replace('-', '년 ')}월</span>
-              <button onClick={() => changeMonth(1)} className="p-2 hover:bg-white rounded-md transition-colors">&gt;</button>
-            </div>
-            
-            <div className="hidden md:flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full font-medium">
-              <User size={16} />
-              {currentUser}
-            </div>
-            <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 transition-colors" title="로그아웃">
-              <LogOut size={20} />
-            </button>
+          <div id="tx-list-container" class="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+            <!-- 내역 동적 생성 -->
           </div>
-        </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        {/* Actions Bar */}
-        <div className="flex justify-end gap-2">
-          <button 
-            onClick={() => setIsYearlyViewOpen(true)}
-            className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
-          >
-            <BarChart3 size={16} />
-            연간 통계
-          </button>
-          <button 
-            onClick={() => setIsSettingsModalOpen(true)}
-            className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
-          >
-            <Settings size={16} />
-            월 예산/한도 설정
-          </button>
-        </div>
-
-        {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* 잔여 금액 카드 */}
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -z-10 opacity-50"></div>
-            <div>
-              <p className="text-gray-500 text-sm font-medium mb-1">예상 수입 대비 잔여액</p>
-              <h2 className={`text-2xl font-bold ${remainingExpectedIncome < 0 ? 'text-red-500' : 'text-gray-800'}`}>
-                {formatCurrency(remainingExpectedIncome)}
-              </h2>
-            </div>
-            <div className="mt-4 pt-4 border-t border-gray-50 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-gray-500">예상 수입</span>
-                <span className="font-medium text-blue-600">{formatCurrency(currentSettings.expectedIncome)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">총 지출+저축</span>
-                <span className="font-medium">{formatCurrency(currentMonthStats.expense + currentMonthStats.saving)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 지출 한도 카드 (중요 기능) */}
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
-            <div>
-              <div className="flex justify-between items-start mb-1">
-                <p className="text-gray-500 text-sm font-medium">사용 가능한 지출 한도</p>
-                <Receipt className="text-orange-400" size={20} />
-              </div>
-              <h2 className={`text-2xl font-bold ${remainingSpendingLimit < 0 ? 'text-red-500' : 'text-gray-800'}`}>
-                {formatCurrency(remainingSpendingLimit)}
-              </h2>
-            </div>
-            <div className="mt-4">
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-gray-500">현재 지출: {formatCurrency(currentMonthStats.expense)}</span>
-                <span className="text-gray-500">한도: {formatCurrency(currentSettings.spendingLimit)}</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2.5">
-                <div 
-                  className={`h-2.5 rounded-full ${spendingPercentage > 90 ? 'bg-red-500' : spendingPercentage > 70 ? 'bg-orange-400' : 'bg-green-500'}`} 
-                  style={{ width: `${spendingPercentage}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
-
-          {/* 누적 저축 카드 */}
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between bg-gradient-to-br from-green-50 to-white">
-            <div>
-              <div className="flex justify-between items-start mb-1">
-                <p className="text-gray-500 text-sm font-medium">총 누적 예·적금</p>
-                <PiggyBank className="text-green-500" size={20} />
-              </div>
-              <h2 className="text-2xl font-bold text-green-700">
-                {formatCurrency(totalCumulativeSavings)}
-              </h2>
-            </div>
-            <div className="mt-4 pt-4 border-t border-green-100/50 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-gray-500">이번 달 저축액</span>
-                <span className="font-medium text-green-600">+{formatCurrency(currentMonthStats.saving)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 월별 계정별 통계 */}
-        {Object.keys(currentMonthUserStats).length > 0 && (
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="text-base font-bold mb-4 flex items-center gap-2 text-gray-800">
-              <Users size={18} className="text-blue-600" /> 
-              {currentMonth.split('-')[1]}월 계정별 통계
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Object.entries(currentMonthUserStats).map(([user, stats]) => (
-                <div key={user} className="p-4 border border-gray-100 rounded-xl bg-gray-50/50 flex flex-col justify-between">
-                  <div className="font-bold text-gray-700 mb-2 flex items-center gap-1">
-                    <User size={14} /> {user}
-                  </div>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">지출</span>
-                      <span className="font-medium text-red-500">{formatCurrency(stats.expense)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">수입</span>
-                      <span className="font-medium text-blue-600">{formatCurrency(stats.income)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 지출 항목별 통계 */}
-        {currentMonthCategoryStats.length > 0 && (
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="text-base font-bold mb-4 flex items-center gap-2 text-gray-800">
-              <PieChart size={18} className="text-orange-500" /> 
-              {currentMonth.split('-')[1]}월 지출 항목별 통계
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {currentMonthCategoryStats.map(({ category, amount, percentage }) => (
-                <div key={category} className="p-4 border border-gray-100 rounded-xl bg-white shadow-sm flex flex-col justify-center">
-                  <div className="flex justify-between items-end mb-2">
-                    <span className="font-bold text-gray-700">{category}</span>
-                    <div className="text-right">
-                      <span className="block font-medium text-gray-800">{formatCurrency(amount)}</span>
-                      <span className="text-xs text-gray-500">{percentage.toFixed(1)}%</span>
-                    </div>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1">
-                    <div className="bg-orange-400 h-1.5 rounded-full" style={{ width: `${percentage}%` }}></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Transaction Input Form */}
-          <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <Plus size={18} className="text-blue-600"/> 내역 추가
-            </h3>
-            <form onSubmit={handleAddTransaction} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">날짜</label>
-                <input 
-                  type="date" 
-                  value={formData.date}
-                  onChange={e => setFormData({...formData, date: e.target.value})}
-                  className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" 
-                  required
-                />
-              </div>
-              
-              <div className="grid grid-cols-3 gap-2">
-                {['income', 'expense', 'saving'].map(type => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setFormData({...formData, type, category: type === 'saving' ? '적금' : ''})}
-                    className={`py-2 text-sm font-medium rounded-lg border transition-colors ${
-                      formData.type === type 
-                        ? (type === 'income' ? 'bg-blue-50 border-blue-200 text-blue-700' : 
-                           type === 'expense' ? 'bg-red-50 border-red-200 text-red-700' : 
-                           'bg-green-50 border-green-200 text-green-700')
-                        : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    {type === 'income' ? '수입' : type === 'expense' ? '지출' : '저축(예적금)'}
-                  </button>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">분류</label>
-                  {formData.type === 'saving' ? (
-                     <select 
-                      value={formData.category}
-                      onChange={e => setFormData({...formData, category: e.target.value})}
-                      className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    >
-                      <option value="적금">적금</option>
-                      <option value="예금">예금</option>
-                      <option value="투자/주식">투자/주식</option>
-                    </select>
-                  ) : (
-                    <input 
-                      type="text" 
-                      placeholder={formData.type === 'income' ? '예: 급여, 용돈' : '예: 식비, 교통비'}
-                      value={formData.category}
-                      onChange={e => setFormData({...formData, category: e.target.value})}
-                      className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      required
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">금액</label>
-                <div className="relative">
-                  <input 
-                    type="number" 
-                    placeholder="0"
-                    value={formData.amount}
-                    onChange={e => setFormData({...formData, amount: e.target.value})}
-                    className="w-full p-2 pl-3 pr-8 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-right font-medium"
-                    required
-                  />
-                  <span className="absolute right-3 top-2.5 text-gray-400 text-sm">원</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">메모 (선택)</label>
-                <input 
-                  type="text" 
-                  placeholder="상세 내용을 입력하세요"
-                  value={formData.memo}
-                  onChange={e => setFormData({...formData, memo: e.target.value})}
-                  className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <button type="submit" className="w-full py-3 bg-gray-800 text-white font-semibold rounded-lg hover:bg-gray-900 transition-colors">
-                저장하기
-              </button>
-            </form>
-          </div>
-
-          {/* Transaction List */}
-          <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
-              <h3 className="text-lg font-bold flex items-center gap-2">
-                <span>{currentMonth.split('-')[1]}월 상세 내역</span>
-                <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">총 {displayedTransactions.length}건</span>
-              </h3>
-              
-              {/* 계정별 필터 */}
-              <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100 overflow-x-auto">
-                <button 
-                  onClick={() => setSelectedUserFilter('All')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap transition-colors ${selectedUserFilter === 'All' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  전체
-                </button>
-                {uniqueUsers.map(u => (
-                  <button 
-                    key={u}
-                    onClick={() => setSelectedUserFilter(u)}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap transition-colors ${selectedUserFilter === u ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            {displayedTransactions.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 flex flex-col items-center">
-                <Receipt size={48} className="mb-3 opacity-20" />
-                <p>등록된 내역이 없습니다.</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-                {displayedTransactions.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors group">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0
-                        ${t.type === 'income' ? 'bg-blue-100 text-blue-600' : 
-                          t.type === 'expense' ? 'bg-red-100 text-red-500' : 
-                          'bg-green-100 text-green-500'}`}
-                      >
-                        {t.type === 'income' ? <TrendingUp size={18} /> : 
-                         t.type === 'expense' ? <TrendingDown size={18} /> : 
-                         <PiggyBank size={18} />}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="font-semibold text-gray-800">{t.category}</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{t.user}</span>
-                        </div>
-                        <div className="text-xs text-gray-500 flex items-center gap-2">
-                          <span>{t.date}</span>
-                          {t.memo && (
-                            <>
-                              <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                              <span className="truncate max-w-[120px] md:max-w-[200px]">{t.memo}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className={`font-bold ${
-                        t.type === 'income' ? 'text-blue-600' : 
-                        t.type === 'expense' ? 'text-red-500' : 
-                        'text-green-600'
-                      }`}>
-                        {t.type === 'expense' ? '-' : '+'}{formatCurrency(t.amount)}
-                      </span>
-                      <button 
-                        onClick={() => handleDeleteTransaction(t.id)}
-                        className="text-xs text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </main>
-
-      {/* --- Settings Modal --- */}
-      {isSettingsModalOpen && (
-        <SettingsModal 
-          month={currentMonth}
-          currentSettings={currentSettings}
-          onSave={handleSaveSettings}
-          onClose={() => setIsSettingsModalOpen(false)}
-        />
-      )}
-
-      {/* --- Yearly View Modal --- */}
-      {isYearlyViewOpen && (
-        <YearlyModal 
-          yearlyStats={yearlyStats}
-          onClose={() => setIsYearlyViewOpen(false)}
-        />
-      )}
-
-    </div>
-  );
-}
-
-// Subcomponents
-function SettingsModal({ month, currentSettings, onSave, onClose }) {
-  const [expectedIncome, setExpectedIncome] = useState(currentSettings.expectedIncome || '');
-  const [spendingLimit, setSpendingLimit] = useState(currentSettings.spendingLimit || '');
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSave(Number(expectedIncome), Number(spendingLimit));
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl relative">
-        <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-800">
-          <X size={20} />
-        </button>
-        <h2 className="text-xl font-bold mb-1">{month.split('-')[1]}월 예산 설정</h2>
-        <p className="text-sm text-gray-500 mb-6">부부의 월별 목표를 설정해보세요.</p>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">총 예상 수입</label>
-            <div className="relative">
-              <input 
-                type="number" 
-                value={expectedIncome}
-                onChange={e => setExpectedIncome(e.target.value)}
-                className="w-full p-3 pl-4 pr-8 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-right"
-                placeholder="0"
-                required
-              />
-              <span className="absolute right-4 top-3.5 text-gray-500 text-sm">원</span>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">이 금액을 기준으로 사용 가능한 잔여액이 계산됩니다.</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">목표 지출 한도 (가장 중요)</label>
-            <div className="relative">
-              <input 
-                type="number" 
-                value={spendingLimit}
-                onChange={e => setSpendingLimit(e.target.value)}
-                className="w-full p-3 pl-4 pr-8 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-medium text-right"
-                placeholder="0"
-                required
-              />
-              <span className="absolute right-4 top-3.5 text-gray-500 text-sm">원</span>
-            </div>
-             <p className="text-xs text-gray-400 mt-1">이번 달에 지출할 최대 금액을 설정하세요.</p>
-          </div>
-          
-          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold mt-4 transition-colors">
-            저장하기
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function YearlyModal({ yearlyStats, onClose }) {
-  const years = Object.keys(yearlyStats).sort((a, b) => b - a); // 최신 연도순
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl relative max-h-[80vh] flex flex-col">
-        <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-800">
-          <X size={20} />
-        </button>
-        <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-          <Calendar size={20} className="text-blue-600" />
-          연도별 수입 및 지출 집계
-        </h2>
-        
-        <div className="overflow-y-auto space-y-6 pr-2">
-          {years.length === 0 ? (
-            <p className="text-center text-gray-500 py-8">기록된 데이터가 없습니다.</p>
-          ) : (
-            years.map(year => (
-              <div key={year} className="border border-gray-100 bg-gray-50 rounded-xl p-5">
-                <h3 className="text-lg font-bold mb-4 text-gray-800">{year}년 결산</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm">
-                    <span className="flex items-center gap-2 text-gray-600">
-                      <TrendingUp size={16} className="text-blue-500"/> 총 수입
-                    </span>
-                    <span className="font-bold text-blue-600">{formatCurrency(yearlyStats[year].income)}</span>
-                  </div>
-                  <div className="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm">
-                    <span className="flex items-center gap-2 text-gray-600">
-                      <TrendingDown size={16} className="text-red-500"/> 총 지출
-                    </span>
-                    <span className="font-bold text-red-500">{formatCurrency(yearlyStats[year].expense)}</span>
-                  </div>
-                  <div className="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm border border-green-100">
-                    <span className="flex items-center gap-2 text-gray-600">
-                      <PiggyBank size={16} className="text-green-500"/> 연간 저축액
-                    </span>
-                    <span className="font-bold text-green-600">{formatCurrency(yearlyStats[year].saving)}</span>
-                  </div>
-                </div>
-                <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center px-1">
-                  <span className="font-medium text-gray-500">순 자산 증가 (수입 - 지출)</span>
-                  <span className="font-bold text-lg text-gray-800">
-                    {formatCurrency(yearlyStats[year].income - yearlyStats[year].expense)}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
         </div>
       </div>
+    </main>
+  </div>
+
+  <!-- ================= 모달 창 ================= -->
+  <!-- 예산 설정 모달 -->
+  <div id="modal-settings" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl relative">
+      <button class="close-modal absolute right-4 top-4 text-gray-400 hover:text-gray-800">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <h2 class="text-xl font-bold mb-1">예산 설정</h2>
+      <p class="text-sm text-gray-500 mb-6">이번 달 부부의 목표를 설정해보세요.</p>
+      
+      <form id="settings-form" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">총 예상 수입</label>
+          <div class="relative">
+            <input type="number" id="setting-income" placeholder="0" required class="w-full p-3 pl-4 pr-8 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-right" />
+            <span class="absolute right-4 top-3.5 text-gray-500 text-sm">원</span>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">목표 지출 한도 (가장 중요)</label>
+          <div class="relative">
+            <input type="number" id="setting-limit" placeholder="0" required class="w-full p-3 pl-4 pr-8 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-medium text-right" />
+            <span class="absolute right-4 top-3.5 text-gray-500 text-sm">원</span>
+          </div>
+        </div>
+        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold mt-4 transition-colors">저장하기</button>
+      </form>
     </div>
-  );
-}
+  </div>
+
+  <!-- 연간 통계 모달 -->
+  <div id="modal-yearly" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl relative max-h-[80vh] flex flex-col">
+      <button class="close-modal absolute right-4 top-4 text-gray-400 hover:text-gray-800">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+        <i data-lucide="calendar" class="text-blue-600 w-5 h-5"></i> 연도별 수입 및 지출 집계
+      </h2>
+      <div id="yearly-list-container" class="overflow-y-auto space-y-6 pr-2">
+        <!-- 동적 생성 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 자바스크립트 로직 ================= -->
+  <script type="module">
+    // Firebase 모듈 가져오기 (CDN)
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // Firebase 설정
+    const firebaseConfig = {
+      apiKey: "AIzaSyBzaF2hp0nDDeaHpgTAHJzvpXE2hMqm2Mc",
+      authDomain: "parkland-money.firebaseapp.com",
+      projectId: "parkland-money",
+      storageBucket: "parkland-money.firebasestorage.app",
+      messagingSenderId: "242107353942",
+      appId: "1:242107353942:web:bcbdb39522b65c7df4a4f7"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    
+    // Firestore Collection 경로용
+    const APP_ID = 'parkland-money-app'; // 로컬 환경 공통 앱 ID
+
+    // 애플리케이션 상태
+    const state = {
+      userAuth: null,
+      currentUser: null,
+      familyCode: null,
+      transactions: [],
+      settings: {},
+      currentMonth: new Date().toISOString().substring(0, 7), // yyyy-mm
+      selectedUserFilter: 'All',
+      formType: 'expense',
+      unsubTx: null,
+      unsubSet: null
+    };
+
+    // 포맷 유틸리티
+    const formatCurrency = (amount) => Number(amount).toLocaleString() + '원';
+
+    // 아이콘 초기화
+    lucide.createIcons();
+
+    // DOM 요소 캐싱
+    const views = {
+      login: document.getElementById('login-view'),
+      app: document.getElementById('app-view'),
+      modalSettings: document.getElementById('modal-settings'),
+      modalYearly: document.getElementById('modal-yearly')
+    };
+    const dateInput = document.getElementById('tx-date');
+    dateInput.value = new Date().toISOString().split('T')[0];
+
+    // --- 인증 초기화 ---
+    signInAnonymously(auth).catch(err => {
+      // 캔버스 에러창이 뜨지 않도록 console.error 대신 console.warn 사용
+      console.warn("Firebase 인증 설정 오류(auth/configuration-not-found)로 인해 비인증 모드로 동작합니다.");
+      state.userAuth = { uid: 'fallback-unauthenticated-user' };
+    });
+
+    onAuthStateChanged(auth, (user) => { 
+      if (user) {
+        state.userAuth = user; 
+      }
+    });
+
+    // --- 이벤트 리스너 등록 ---
+    document.getElementById('login-form').addEventListener('submit', handleLogin);
+    document.getElementById('btn-logout').addEventListener('click', handleLogout);
+    
+    // 월 이동
+    document.getElementById('btn-prev-month').addEventListener('click', () => changeMonth(-1));
+    document.getElementById('btn-next-month').addEventListener('click', () => changeMonth(1));
+    
+    // 폼 타입 선택 버튼
+    document.querySelectorAll('.tx-type-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const type = e.target.dataset.type;
+        state.formType = type;
+        
+        // 버튼 스타일 업데이트
+        document.querySelectorAll('.tx-type-btn').forEach(b => {
+          b.className = 'tx-type-btn py-2 text-sm font-medium rounded-lg border transition-colors bg-white border-gray-200 text-gray-500';
+        });
+        if(type === 'income') e.target.className = 'tx-type-btn py-2 text-sm font-medium rounded-lg border transition-colors bg-blue-50 border-blue-200 text-blue-700';
+        if(type === 'expense') e.target.className = 'tx-type-btn py-2 text-sm font-medium rounded-lg border transition-colors bg-red-50 border-red-200 text-red-700';
+        if(type === 'saving') e.target.className = 'tx-type-btn py-2 text-sm font-medium rounded-lg border transition-colors bg-green-50 border-green-200 text-green-700';
+
+        // 입력 폼 변경 (적금인 경우 Select, 아니면 Input)
+        const catInput = document.getElementById('tx-category-input');
+        const catSelect = document.getElementById('tx-category-select');
+        if(type === 'saving') {
+          catInput.classList.add('hidden'); catInput.required = false;
+          catSelect.classList.remove('hidden');
+        } else {
+          catInput.classList.remove('hidden'); catInput.required = true;
+          catSelect.classList.add('hidden');
+          catInput.placeholder = type === 'income' ? '예: 급여, 용돈' : '예: 식비, 교통비';
+        }
+      });
+    });
+
+    // 폼 제출 (내역 추가)
+    document.getElementById('tx-form').addEventListener('submit', handleAddTransaction);
+
+    // 삭제 버튼 (이벤트 위임)
+    document.getElementById('tx-list-container').addEventListener('click', async (e) => {
+      const btn = e.target.closest('.delete-btn');
+      if(btn && state.userAuth) {
+        const id = btn.dataset.id;
+        try {
+          await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'transactions', id));
+        } catch (err) {
+          console.warn("Delete Tx error:", err);
+        }
+      }
+    });
+
+    // 모달 제어
+    document.getElementById('btn-open-settings').addEventListener('click', () => {
+      const currentSetting = state.settings[state.currentMonth] || { expectedIncome: '', spendingLimit: '' };
+      document.getElementById('setting-income').value = currentSetting.expectedIncome;
+      document.getElementById('setting-limit').value = currentSetting.spendingLimit;
+      views.modalSettings.classList.remove('hidden');
+    });
+    document.getElementById('btn-open-yearly').addEventListener('click', () => {
+      renderYearlyStats();
+      views.modalYearly.classList.remove('hidden');
+    });
+    document.querySelectorAll('.close-modal').forEach(btn => {
+      btn.addEventListener('click', () => {
+        views.modalSettings.classList.add('hidden');
+        views.modalYearly.classList.add('hidden');
+      });
+    });
+
+    // 예산 설정 저장
+    document.getElementById('settings-form').addEventListener('submit', handleSaveSettings);
+
+    // 필터 버튼 (이벤트 위임)
+    document.getElementById('user-filter-container').addEventListener('click', (e) => {
+      if(e.target.tagName === 'BUTTON') {
+        state.selectedUserFilter = e.target.dataset.user;
+        renderTxList();
+        renderFilters(); // 필터 버튼 스타일 갱신
+      }
+    });
+
+
+    // --- 로직 핸들러 ---
+    function handleLogin(e) {
+      e.preventDefault();
+      const code = document.getElementById('input-family-code').value.trim();
+      const name = document.getElementById('input-login-name').value.trim();
+      if(code && name) {
+        state.familyCode = code;
+        state.currentUser = name;
+        document.getElementById('display-user-name').textContent = name;
+        
+        views.login.classList.add('hidden');
+        views.app.classList.remove('hidden');
+        
+        subscribeToFirebase();
+      }
+    }
+
+    function handleLogout() {
+      if(state.unsubTx) state.unsubTx();
+      if(state.unsubSet) state.unsubSet();
+      state.currentUser = null;
+      state.familyCode = null;
+      document.getElementById('input-family-code').value = '';
+      document.getElementById('input-login-name').value = '';
+      views.app.classList.add('hidden');
+      views.login.classList.remove('hidden');
+    }
+
+    function changeMonth(offset) {
+      const [year, month] = state.currentMonth.split('-').map(Number);
+      const date = new Date(year, month - 1 + offset, 1);
+      const newYear = date.getFullYear();
+      const newMonth = String(date.getMonth() + 1).padStart(2, '0');
+      state.currentMonth = `${newYear}-${newMonth}`;
+      updateView();
+    }
+
+    async function handleAddTransaction(e) {
+      e.preventDefault();
+      
+      if(!state.userAuth) return;
+
+      const dateStr = document.getElementById('tx-date').value;
+      const amount = parseInt(document.getElementById('tx-amount').value, 10);
+      const memo = document.getElementById('tx-memo').value;
+      const category = state.formType === 'saving' 
+        ? document.getElementById('tx-category-select').value 
+        : document.getElementById('tx-category-input').value;
+
+      const newTx = {
+        date: dateStr,
+        type: state.formType,
+        category: category,
+        amount: amount,
+        memo: memo,
+        user: state.currentUser,
+        familyCode: state.familyCode,
+        createdAt: Date.now()
+      };
+
+      try {
+        await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'transactions'), newTx);
+        // 폼 초기화 (금액, 메모, 분류)
+        document.getElementById('tx-amount').value = '';
+        document.getElementById('tx-memo').value = '';
+        if(state.formType !== 'saving') document.getElementById('tx-category-input').value = '';
+      } catch (err) {
+        console.warn("Add Tx error:", err);
+      }
+    }
+
+    async function handleSaveSettings(e) {
+      e.preventDefault();
+      if(!state.userAuth) return;
+      
+      const income = Number(document.getElementById('setting-income').value);
+      const limit = Number(document.getElementById('setting-limit').value);
+      const currentSettingDoc = state.settings[state.currentMonth]?.docId;
+
+      try {
+        if(currentSettingDoc) {
+          await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'settings', currentSettingDoc), {
+            month: state.currentMonth, expectedIncome: income, spendingLimit: limit, familyCode: state.familyCode
+          });
+        } else {
+          await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'settings'), {
+            month: state.currentMonth, expectedIncome: income, spendingLimit: limit, familyCode: state.familyCode
+          });
+        }
+        views.modalSettings.classList.add('hidden');
+      } catch (err) {
+        console.warn("Save settings error:", err);
+      }
+    }
+
+    // --- Firebase 구독 및 데이터 처리 ---
+    function subscribeToFirebase() {
+      if(state.unsubTx) state.unsubTx();
+      if(state.unsubSet) state.unsubSet();
+
+      // 내역 동기화
+      const txRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'transactions');
+      state.unsubTx = onSnapshot(txRef, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        state.transactions = data.filter(t => t.familyCode === state.familyCode).sort((a, b) => new Date(b.date) - new Date(a.date));
+        updateView();
+      }, (err) => {
+        console.warn("Transaction sync error:", err);
+      });
+
+      // 설정 동기화
+      const setRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'settings');
+      state.unsubSet = onSnapshot(setRef, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const familySets = data.filter(s => s.familyCode === state.familyCode);
+        const newSettings = {};
+        familySets.forEach(s => {
+          newSettings[s.month] = { expectedIncome: s.expectedIncome, spendingLimit: s.spendingLimit, docId: s.id };
+        });
+        state.settings = newSettings;
+        updateView();
+      }, (err) => {
+        console.warn("Settings sync error:", err);
+      });
+    }
+
+    // --- 화면 렌더링 업데이트 ---
+    function updateView() {
+      document.getElementById('display-month').textContent = state.currentMonth.replace('-', '년 ') + '월';
+
+      // 당월 데이터 필터링
+      const currentMonthTxs = state.transactions.filter(t => t.date.startsWith(state.currentMonth));
+      
+      let income = 0, expense = 0, saving = 0;
+      currentMonthTxs.forEach(t => {
+        if(t.type === 'income') income += t.amount;
+        if(t.type === 'expense') expense += t.amount;
+        if(t.type === 'saving') saving += t.amount;
+      });
+
+      const currentSettings = state.settings[state.currentMonth] || { expectedIncome: 0, spendingLimit: 0 };
+      const totalSavings = state.transactions.filter(t => t.type === 'saving').reduce((sum, t) => sum + t.amount, 0);
+
+      const remainingIncome = currentSettings.expectedIncome - expense - saving;
+      const remainingLimit = currentSettings.spendingLimit - expense;
+      const spendingPct = currentSettings.spendingLimit > 0 ? Math.min((expense / currentSettings.spendingLimit) * 100, 100) : 0;
+
+      // 요약 카드 업데이트
+      const elRemInc = document.getElementById('card-remaining-income');
+      elRemInc.textContent = formatCurrency(remainingIncome);
+      elRemInc.className = `text-2xl font-bold ${remainingIncome < 0 ? 'text-red-500' : 'text-gray-800'}`;
+      
+      document.getElementById('card-expected-income').textContent = formatCurrency(currentSettings.expectedIncome);
+      document.getElementById('card-total-out').textContent = formatCurrency(expense + saving);
+
+      const elRemLim = document.getElementById('card-remaining-limit');
+      elRemLim.textContent = formatCurrency(remainingLimit);
+      elRemLim.className = `text-2xl font-bold ${remainingLimit < 0 ? 'text-red-500' : 'text-gray-800'}`;
+      
+      document.getElementById('card-current-expense').textContent = `현재 지출: ${formatCurrency(expense)}`;
+      document.getElementById('card-limit-total').textContent = `한도: ${formatCurrency(currentSettings.spendingLimit)}`;
+      
+      const elLimBar = document.getElementById('card-limit-bar');
+      elLimBar.style.width = `${spendingPct}%`;
+      elLimBar.className = `h-2.5 rounded-full ${spendingPct > 90 ? 'bg-red-500' : spendingPct > 70 ? 'bg-orange-400' : 'bg-green-500'}`;
+
+      document.getElementById('card-total-savings').textContent = formatCurrency(totalSavings);
+      document.getElementById('card-month-savings').textContent = `+${formatCurrency(saving)}`;
+
+      // 계정별 & 카테고리별 계산 렌더링
+      renderUserStats(currentMonthTxs);
+      renderCategoryStats(currentMonthTxs);
+      renderFilters();
+      renderTxList();
+      lucide.createIcons();
+    }
+
+    function renderUserStats(txs) {
+      const container = document.getElementById('user-stats-container');
+      const grid = document.getElementById('user-stats-grid');
+      
+      const stats = {};
+      txs.forEach(t => {
+        if(!stats[t.user]) stats[t.user] = { income: 0, expense: 0, saving: 0 };
+        if(t.type === 'income') stats[t.user].income += t.amount;
+        if(t.type === 'expense') stats[t.user].expense += t.amount;
+        if(t.type === 'saving') stats[t.user].saving += t.amount;
+      });
+
+      if(Object.keys(stats).length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+      container.classList.remove('hidden');
+      
+      let html = '';
+      for (const [user, data] of Object.entries(stats)) {
+        html += `
+          <div class="p-4 border border-gray-100 rounded-xl bg-gray-50/50 flex flex-col justify-between">
+            <div class="font-bold text-gray-700 mb-2 flex items-center gap-1">
+              <i data-lucide="user" class="w-4 h-4"></i> ${user}
+            </div>
+            <div class="space-y-1 text-sm">
+              <div class="flex justify-between"><span class="text-gray-500">지출</span><span class="font-medium text-red-500">${formatCurrency(data.expense)}</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">수입</span><span class="font-medium text-blue-600">${formatCurrency(data.income)}</span></div>
+            </div>
+          </div>
+        `;
+      }
+      grid.innerHTML = html;
+    }
+
+    function renderCategoryStats(txs) {
+      const container = document.getElementById('category-stats-container');
+      const grid = document.getElementById('category-stats-grid');
+      
+      const stats = {};
+      let totalExp = 0;
+      txs.forEach(t => {
+        if(t.type === 'expense') {
+          if(!stats[t.category]) stats[t.category] = 0;
+          stats[t.category] += t.amount;
+          totalExp += t.amount;
+        }
+      });
+
+      const catArr = Object.entries(stats)
+        .map(([cat, amt]) => ({ cat, amt, pct: totalExp > 0 ? (amt/totalExp)*100 : 0 }))
+        .sort((a, b) => b.amt - a.amt);
+
+      if(catArr.length === 0) {
+        container.classList.add('hidden'); return;
+      }
+      container.classList.remove('hidden');
+
+      let html = '';
+      catArr.forEach(item => {
+        html += `
+          <div class="p-4 border border-gray-100 rounded-xl bg-white shadow-sm flex flex-col justify-center">
+            <div class="flex justify-between items-end mb-2">
+              <span class="font-bold text-gray-700">${item.cat}</span>
+              <div class="text-right">
+                <span class="block font-medium text-gray-800">${formatCurrency(item.amt)}</span>
+                <span class="text-xs text-gray-500">${item.pct.toFixed(1)}%</span>
+              </div>
+            </div>
+            <div class="w-full bg-gray-100 rounded-full h-1.5 mt-1">
+              <div class="bg-orange-400 h-1.5 rounded-full" style="width: ${item.pct}%"></div>
+            </div>
+          </div>
+        `;
+      });
+      grid.innerHTML = html;
+    }
+
+    function renderFilters() {
+      const users = new Set(state.transactions.map(t => t.user));
+      if(state.currentUser) users.add(state.currentUser);
+      const userArr = Array.from(users);
+
+      const container = document.getElementById('user-filter-container');
+      let html = `<button data-user="All" class="px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap transition-colors ${state.selectedUserFilter === 'All' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}">전체</button>`;
+      
+      userArr.forEach(u => {
+        html += `<button data-user="${u}" class="px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap transition-colors ${state.selectedUserFilter === u ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}">${u}</button>`;
+      });
+      container.innerHTML = html;
+    }
+
+    function renderTxList() {
+      const container = document.getElementById('tx-list-container');
+      const currentMonthTxs = state.transactions.filter(t => t.date.startsWith(state.currentMonth));
+      
+      const displayTxs = state.selectedUserFilter === 'All' 
+        ? currentMonthTxs 
+        : currentMonthTxs.filter(t => t.user === state.selectedUserFilter);
+      
+      document.getElementById('tx-count').textContent = `총 ${displayTxs.length}건`;
+
+      if(displayTxs.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-12 text-gray-400 flex flex-col items-center">
+            <i data-lucide="receipt" class="w-12 h-12 mb-3 opacity-20"></i>
+            <p>등록된 내역이 없습니다.</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = '';
+      displayTxs.forEach(t => {
+        let iconHtml, bgClass, textClass, sign;
+        if(t.type === 'income') { iconHtml = '<i data-lucide="trending-up" class="w-4 h-4"></i>'; bgClass = 'bg-blue-100 text-blue-600'; textClass = 'text-blue-600'; sign = '+'; }
+        else if(t.type === 'expense') { iconHtml = '<i data-lucide="trending-down" class="w-4 h-4"></i>'; bgClass = 'bg-red-100 text-red-500'; textClass = 'text-red-500'; sign = '-'; }
+        else { iconHtml = '<i data-lucide="piggy-bank" class="w-4 h-4"></i>'; bgClass = 'bg-green-100 text-green-500'; textClass = 'text-green-600'; sign = '+'; }
+
+        html += `
+          <div class="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors group">
+            <div class="flex items-center gap-4">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${bgClass}">${iconHtml}</div>
+              <div>
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="font-semibold text-gray-800">${t.category}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">${t.user}</span>
+                </div>
+                <div class="text-xs text-gray-500 flex items-center gap-2">
+                  <span>${t.date}</span>
+                  ${t.memo ? `<span class="w-1 h-1 bg-gray-300 rounded-full"></span><span class="truncate max-w-[120px] md:max-w-[200px]">${t.memo}</span>` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="flex flex-col items-end gap-1">
+              <span class="font-bold ${textClass}">${sign}${formatCurrency(t.amount)}</span>
+              <button data-id="${t.id}" class="delete-btn text-xs text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">삭제</button>
+            </div>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    }
+
+    function renderYearlyStats() {
+      const container = document.getElementById('yearly-list-container');
+      const stats = {};
+      
+      state.transactions.forEach(t => {
+        const year = t.date.split('-')[0];
+        if(!stats[year]) stats[year] = { income: 0, expense: 0, saving: 0 };
+        if(t.type === 'income') stats[year].income += t.amount;
+        if(t.type === 'expense') stats[year].expense += t.amount;
+        if(t.type === 'saving') stats[year].saving += t.amount;
+      });
+
+      const years = Object.keys(stats).sort((a, b) => b - a);
+
+      if(years.length === 0) {
+        container.innerHTML = `<p class="text-center text-gray-500 py-8">기록된 데이터가 없습니다.</p>`;
+        return;
+      }
+
+      let html = '';
+      years.forEach(year => {
+        const d = stats[year];
+        html += `
+          <div class="border border-gray-100 bg-gray-50 rounded-xl p-5">
+            <h3 class="text-lg font-bold mb-4 text-gray-800">${year}년 결산</h3>
+            <div class="space-y-3">
+              <div class="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm">
+                <span class="flex items-center gap-2 text-gray-600"><i data-lucide="trending-up" class="w-4 h-4 text-blue-500"></i> 총 수입</span>
+                <span class="font-bold text-blue-600">${formatCurrency(d.income)}</span>
+              </div>
+              <div class="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm">
+                <span class="flex items-center gap-2 text-gray-600"><i data-lucide="trending-down" class="w-4 h-4 text-red-500"></i> 총 지출</span>
+                <span class="font-bold text-red-500">${formatCurrency(d.expense)}</span>
+              </div>
+              <div class="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm border border-green-100">
+                <span class="flex items-center gap-2 text-gray-600"><i data-lucide="piggy-bank" class="w-4 h-4 text-green-500"></i> 연간 저축액</span>
+                <span class="font-bold text-green-600">${formatCurrency(d.saving)}</span>
+              </div>
+            </div>
+            <div class="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center px-1">
+              <span class="font-medium text-gray-500">순 자산 증가 (수입 - 지출)</span>
+              <span class="font-bold text-lg text-gray-800">${formatCurrency(d.income - d.expense)}</span>
+            </div>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+  </script>
+</body>
+</html>
